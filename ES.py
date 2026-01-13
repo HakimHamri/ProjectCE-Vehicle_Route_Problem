@@ -1,150 +1,194 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg') # Forces Matplotlib to use a non-interactive backend
-import matplotlib.pyplot as plt
 import time
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="VRP with Evolution Strategy", layout="wide")
+st.set_page_config(page_title="VRP Evolution Strategy", layout="wide")
 
-st.title("Vehicle Routing Problem - Evolution Strategy")
+st.title("🚚 Vehicle Routing Problem (VRP)")
+st.subheader("Evolution Strategy with Local Search (Best Performance)")
 
 # =========================
-# DATA INPUT
+# Upload Dataset
 # =========================
-st.subheader("Upload CSV Data")
-uploaded_file = st.file_uploader("Upload CSV with columns: node_id, x, y, demand, node_type, vehicle_capacity", type="csv")
+uploaded_file = st.file_uploader("Upload VRP CSV Dataset", type=["csv"])
 
-if uploaded_file is not None:
+if uploaded_file:
     df = pd.read_csv(uploaded_file)
 
     depot = df[df['node_type'] == 'depot'].iloc[0]
     customers = df[df['node_type'] == 'customer'].copy()
-    capacity = customers['vehicle_capacity'].iloc[0]
+    capacity = df['vehicle_capacity'].iloc[0]
 
-    coords = df[['x', 'y']].values
-    node_ids = df['node_id'].values
-
+    nodes = df[['x', 'y']].values
     dist_matrix = np.sqrt(
-        np.sum((coords[:, None, :] - coords[None, :, :]) ** 2, axis=2)
+        np.sum((nodes[:, np.newaxis, :] - nodes[np.newaxis, :, :]) ** 2, axis=2)
     )
+    demands = df.set_index('node_id')['demand'].to_dict()
 
     # =========================
-    # FITNESS & ROUTE FUNCTIONS
+    # Functions
     # =========================
-    def calculate_fitness(permutation):
-        total_distance = 0
-        current_load = 0
-        current_node = depot['node_id']
+    def calculate_route_distance(route):
+        if not route:
+            return 0
+        d = dist_matrix[0, route[0]]
+        for i in range(len(route) - 1):
+            d += dist_matrix[route[i], route[i + 1]]
+        d += dist_matrix[route[-1], 0]
+        return d
 
-        for cust_id in permutation:
-            demand = customers.loc[customers['node_id'] == cust_id, 'demand'].values[0]
-            if current_load + demand > capacity:
-                total_distance += dist_matrix[current_node, depot['node_id']]
-                current_node = depot['node_id']
-                current_load = 0
-
-            total_distance += dist_matrix[current_node, cust_id]
-            current_node = cust_id
-            current_load += demand
-
-        total_distance += dist_matrix[current_node, depot['node_id']]
-        return total_distance
-
-    def get_routes(permutation):
+    def decode_and_eval(permutation):
         routes = []
         current_route = []
         current_load = 0
+        total_dist = 0
 
-        for cust_id in permutation:
-            demand = customers.loc[customers['node_id'] == cust_id, 'demand'].values[0]
-            if current_load + demand > capacity:
+        for node_id in permutation:
+            demand = demands[node_id]
+            if current_load + demand <= capacity:
+                current_route.append(node_id)
+                current_load += demand
+            else:
+                total_dist += calculate_route_distance(current_route)
                 routes.append(current_route)
-                current_route = []
-                current_load = 0
-
-            current_route.append(cust_id)
-            current_load += demand
+                current_route = [node_id]
+                current_load = demand
 
         if current_route:
+            total_dist += calculate_route_distance(current_route)
             routes.append(current_route)
 
-        return routes
+        return total_dist, routes
 
-    # =========================
-    # STREAMLIT PARAMETERS
-    # =========================
-    st.sidebar.subheader("ES Parameters")
-    mu = st.sidebar.number_input("Parent Population (mu)", value=20, min_value=1)
-    lam = st.sidebar.number_input("Offspring Population (lambda)", value=200, min_value=1)
-    generations = st.sidebar.number_input("Generations", value=200, min_value=1)
+    def two_opt_permutation(perm):
+        best_perm = list(perm)
+        best_dist, _ = decode_and_eval(best_perm)
+        improved = True
 
-    # =========================
-    # RUN BUTTON
-    # =========================
-    if st.button("Run Evolution Strategy"):
+        while improved:
+            improved = False
+            for i in range(len(best_perm) - 1):
+                for j in range(i + 1, len(best_perm)):
+                    new_perm = best_perm[:i] + best_perm[i:j+1][::-1] + best_perm[j+1:]
+                    new_dist, _ = decode_and_eval(new_perm)
+                    if new_dist < best_dist:
+                        best_dist = new_dist
+                        best_perm = new_perm
+                        improved = True
+        return best_perm
 
-        customer_ids = customers['node_id'].values
-        num_customers = len(customer_ids)
+    def best_performance_es(mu=20, lambda_=100, generations=1000):
+        cust_ids = customers['node_id'].tolist()
+        pop = [np.random.permutation(cust_ids).tolist() for _ in range(mu)]
+        pop_scores = [decode_and_eval(p)[0] for p in pop]
 
-        population = [np.random.permutation(customer_ids) for _ in range(mu)]
-        fitnesses = [calculate_fitness(ind) for ind in population]
         history = []
-
-        start_time = time.time()
 
         for gen in range(generations):
             offspring = []
-            for _ in range(lam):
-                parent = population[np.random.randint(mu)]
-                child = parent.copy()
-                i, j = sorted(np.random.choice(num_customers, 2, replace=False))
-                child[i:j] = child[i:j][::-1]
+            for _ in range(lambda_):
+                parent = pop[np.random.randint(mu)]
+                child = list(parent)
+
+                r = np.random.rand()
+                if r < 0.4:
+                    i, j = np.random.choice(len(child), 2, replace=False)
+                    child[i], child[j] = child[j], child[i]
+                elif r < 0.8:
+                    a, b = sorted(np.random.choice(len(child), 2, replace=False))
+                    child[a:b] = child[a:b][::-1]
+                else:
+                    a, b = sorted(np.random.choice(len(child), 2, replace=False))
+                    segment = child[a:b]
+                    del child[a:b]
+                    pos = np.random.randint(0, len(child) + 1)
+                    for s in reversed(segment):
+                        child.insert(pos, s)
+
                 offspring.append(child)
 
-            offspring_fitness = [calculate_fitness(ind) for ind in offspring]
+            offspring_scores = [decode_and_eval(p)[0] for p in offspring]
 
-            combined_pop = population + offspring
-            combined_fit = fitnesses + offspring_fitness
+            combined = pop + offspring
+            combined_scores = pop_scores + offspring_scores
 
-            best_idx = np.argsort(combined_fit)[:mu]
-            population = [combined_pop[i] for i in best_idx]
-            fitnesses = [combined_fit[i] for i in best_idx]
-            history.append(fitnesses[0])
+            idx = np.argsort(combined_scores)[:mu]
+            pop = [combined[i] for i in idx]
+            pop_scores = [combined_scores[i] for i in idx]
 
-        runtime = time.time() - start_time
+            if gen % 100 == 0:
+                pop[0] = two_opt_permutation(pop[0])
+                pop_scores[0], _ = decode_and_eval(pop[0])
 
-        best_individual = population[0]
-        best_fitness = fitnesses[0]
-        best_routes = get_routes(best_individual)
+            history.append(pop_scores[0])
+
+        best_score, best_routes = decode_and_eval(pop[0])
+        return best_score, best_routes, history
+
+    # =========================
+    # Sidebar Controls
+    # =========================
+    st.sidebar.header("⚙️ Parameters")
+    mu = st.sidebar.slider("μ (Population)", 10, 50, 20)
+    lambda_ = st.sidebar.slider("λ (Offspring)", 50, 200, 100)
+    generations = st.sidebar.slider("Generations", 100, 2000, 1000)
+
+    # =========================
+    # Run Button
+    # =========================
+    if st.button("🚀 Run Evolution Strategy"):
+        with st.spinner("Optimizing routes..."):
+            start = time.time()
+            best_score, best_routes, history = best_performance_es(
+                mu, lambda_, generations
+            )
+            exec_time = time.time() - start
+
+        st.success("Optimization Completed!")
 
         # =========================
-        # RESULTS
+        # Results Summary
         # =========================
-        st.subheader("Results")
-        st.write(f"**Best Distance:** {best_fitness:.2f}")
-        st.write(f"**Number of Routes:** {len(best_routes)}")
-        st.write(f"**Runtime:** {runtime:.2f}s")
+        st.metric("Best Total Distance", f"{best_score:.4f}")
+        st.metric("Vehicles Used", len(best_routes))
+        st.metric("Execution Time (s)", f"{exec_time:.2f}")
 
+        # =========================
+        # Plot Routes
+        # =========================
+        st.subheader("📍 Best Route Visualization")
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        ax.scatter(depot['x'], depot['y'], c='red', marker='s', s=150, label='Depot')
+        ax.scatter(customers['x'], customers['y'], c='blue', s=50, label='Customers')
+
+        colors = plt.cm.tab10(np.linspace(0, 1, len(best_routes)))
         for i, route in enumerate(best_routes):
-            st.write(f"Route {i+1}: Depot -> {' -> '.join(map(str, route))} -> Depot")
+            coords = [(depot['x'], depot['y'])]
+            for node_id in route:
+                node = df[df['node_id'] == node_id].iloc[0]
+                coords.append((node['x'], node['y']))
+            coords.append((depot['x'], depot['y']))
 
-        # =========================
-        # CONVERGENCE PLOT
-        # =========================
-        st.subheader("Convergence Plot")
-        fig, ax = plt.subplots()
-        ax.plot(history)
-        ax.set_xlabel("Generation")
-        ax.set_ylabel("Best Distance")
-        ax.set_title("Evolution Strategy Convergence")
+            xs, ys = zip(*coords)
+            ax.plot(xs, ys, color=colors[i], linewidth=2, label=f'Vehicle {i+1}')
+
+        ax.legend()
+        ax.grid(True)
         st.pyplot(fig)
 
         # =========================
-        # ROUTE PLOT
+        # Convergence Plot
         # =========================
-        st.subheader("Best Routes")
-        fig2, ax2 = plt.subplots()
-        ax2.scatter(customers['x'], customers['y'], label='Customers')
-        ax2.scatt
+        st.subheader("📉 Convergence Curve")
+        fig2, ax2 = plt.subplots(figsize=(8, 4))
+        ax2.plot(history)
+        ax2.set_xlabel("Generation")
+        ax2.set_ylabel("Total Distance")
+        ax2.grid(True)
+        st.pyplot(fig2)
+
+else:
+    st.info("👆 Please upload a VRP CSV dataset to start.")
