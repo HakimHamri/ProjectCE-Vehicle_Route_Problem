@@ -79,7 +79,7 @@ if uploaded_file:
                         improved = True
         return best_perm
 
-    def best_performance_es(mu=20, lambda_=100, generations=1000):
+    def best_performance_es(mu=20, lambda_=200, generations=200):
         cust_ids = customers['node_id'].tolist()
         pop = [np.random.permutation(cust_ids).tolist() for _ in range(mu)]
         pop_scores = [decode_and_eval(p)[0] for p in pop]
