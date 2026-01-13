@@ -1,6 +1,8 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg') # Forces Matplotlib to use a non-interactive backend
 import matplotlib.pyplot as plt
 import time
 
