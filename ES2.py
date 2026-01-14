@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="VRP Evolution Strategy", layout="wide")
 
 st.title("🚚 Vehicle Routing Problem (VRP)")
-st.subheader("Evolution Strategy with Local Search (Best Performance)")
+st.subheader("Evolution Strategy with Local Search")
 
 # =========================
 # Upload Dataset
@@ -145,7 +145,7 @@ if uploaded_file:
         return best_distance, best_routes, history
 
     # =========================
-    # Fixed Parameters
+    # Parameters
     # =========================
     mu = 20
     lambda_ = 200
@@ -172,13 +172,13 @@ if uploaded_file:
         st.metric("Execution Time (s)", f"{exec_time:.2f}")
 
         # =========================
-        # Route Visualization
+        # SMALL Route Visualization
         # =========================
-        st.subheader("📍 Best Route Visualization")
-        fig, ax = plt.subplots(figsize=(4, 4))
+        st.subheader("📍 Best Route Visualization (Small)")
+        fig, ax = plt.subplots(figsize=(4.5, 4))
 
-        ax.scatter(depot['x'], depot['y'], marker='s', s=150, label="Depot")
-        ax.scatter(customers['x'], customers['y'], s=50, label="Customers")
+        ax.scatter(depot['x'], depot['y'], marker='s', s=80, label="Depot")
+        ax.scatter(customers['x'], customers['y'], s=30, label="Customers")
 
         colors = plt.cm.tab10(np.linspace(0, 1, len(best_routes)))
 
@@ -190,22 +190,24 @@ if uploaded_file:
             coords.append((depot['x'], depot['y']))
 
             xs, ys = zip(*coords)
-            ax.plot(xs, ys, color=colors[i], linewidth=2, label=f"Vehicle {i+1}")
+            ax.plot(xs, ys, color=colors[i], linewidth=1.5, label=f"V{i+1}")
 
-        ax.legend()
+        ax.legend(fontsize=7)
+        ax.tick_params(labelsize=8)
         ax.grid(True)
-        st.pyplot(fig)
+        st.pyplot(fig, use_container_width=True)
 
         # =========================
-        # Convergence Plot
+        # SMALL Convergence Plot
         # =========================
-        st.subheader("📉 Convergence Curve")
-        fig2, ax2 = plt.subplots(figsize=(4, 3.5))
-        ax2.plot(history)
-        ax2.set_xlabel("Generation")
-        ax2.set_ylabel("Total Distance")
+        st.subheader("📉 Convergence Curve (Small)")
+        fig2, ax2 = plt.subplots(figsize=(4.5, 2.5))
+        ax2.plot(history, linewidth=1.5)
+        ax2.set_xlabel("Generation", fontsize=8)
+        ax2.set_ylabel("Distance", fontsize=8)
+        ax2.tick_params(labelsize=8)
         ax2.grid(True)
-        st.pyplot(fig2)
+        st.pyplot(fig2, use_container_width=True)
 
 else:
     st.info("👆 Please upload a VRP CSV dataset to start.")
