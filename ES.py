@@ -4,6 +4,9 @@ import pandas as pd
 import time
 import matplotlib.pyplot as plt
 
+# =========================
+# Streamlit Page Config
+# =========================
 st.set_page_config(page_title="VRP Evolution Strategy", layout="wide")
 
 st.title("🚚 Vehicle Routing Problem (VRP)")
@@ -25,10 +28,11 @@ if uploaded_file:
     dist_matrix = np.sqrt(
         np.sum((nodes[:, np.newaxis, :] - nodes[np.newaxis, :, :]) ** 2, axis=2)
     )
+
     demands = df.set_index('node_id')['demand'].to_dict()
 
     # =========================
-    # Functions
+    # FUNCTIONS
     # =========================
     def calculate_route_distance(route):
         if not route:
@@ -46,15 +50,14 @@ if uploaded_file:
         total_dist = 0
 
         for node_id in permutation:
-            demand = demands[node_id]
-            if current_load + demand <= capacity:
+            if current_load + demands[node_id] <= capacity:
                 current_route.append(node_id)
-                current_load += demand
+                current_load += demands[node_id]
             else:
                 total_dist += calculate_route_distance(current_route)
                 routes.append(current_route)
                 current_route = [node_id]
-                current_load = demand
+                current_load = demands[node_id]
 
         if current_route:
             total_dist += calculate_route_distance(current_route)
@@ -63,23 +66,23 @@ if uploaded_file:
         return total_dist, routes
 
     def two_opt_permutation(perm):
-        best_perm = list(perm)
-        best_dist, _ = decode_and_eval(best_perm)
-        improved = True
+        best = list(perm)
+        best_dist, _ = decode_and_eval(best)
 
+        improved = True
         while improved:
             improved = False
-            for i in range(len(best_perm) - 1):
-                for j in range(i + 1, len(best_perm)):
-                    new_perm = best_perm[:i] + best_perm[i:j+1][::-1] + best_perm[j+1:]
-                    new_dist, _ = decode_and_eval(new_perm)
+            for i in range(len(best) - 1):
+                for j in range(i + 1, len(best)):
+                    new = best[:i] + best[i:j+1][::-1] + best[j+1:]
+                    new_dist, _ = decode_and_eval(new)
                     if new_dist < best_dist:
                         best_dist = new_dist
-                        best_perm = new_perm
+                        best = new
                         improved = True
-        return best_perm
+        return best
 
-    def best_performance_es(mu=20, lambda_=200, generations=200):
+    def best_performance_es(mu, lambda_, generations):
         cust_ids = customers['node_id'].tolist()
         pop = [np.random.permutation(cust_ids).tolist() for _ in range(mu)]
         pop_scores = [decode_and_eval(p)[0] for p in pop]
@@ -88,6 +91,7 @@ if uploaded_file:
 
         for gen in range(generations):
             offspring = []
+
             for _ in range(lambda_):
                 parent = pop[np.random.randint(mu)]
                 child = list(parent)
@@ -128,15 +132,15 @@ if uploaded_file:
         return best_score, best_routes, history
 
     # =========================
-    # Sidebar Controls
+    # SIDEBAR PARAMETERS
     # =========================
     st.sidebar.header("⚙️ Parameters")
-    mu = st.sidebar.slider("μ (Population)", 10, 50, 20)
-    lambda_ = st.sidebar.slider("λ (Offspring)", 50, 200, 100)
-    generations = st.sidebar.slider("Generations", 100, 200, 1000)
+    mu = st.sidebar.slider("μ Population", 10, 50, 20)
+    lambda_ = st.sidebar.slider("λ Offspring", 50, 500, 200)
+    generations = st.sidebar.slider("Generations", 100, 1000, 200)
 
     # =========================
-    # Run Button
+    # RUN BUTTON
     # =========================
     if st.button("🚀 Run Evolution Strategy"):
         with st.spinner("Optimizing routes..."):
@@ -146,29 +150,80 @@ if uploaded_file:
             )
             exec_time = time.time() - start
 
+        # =========================
+        # METRICS
+        # =========================
         st.success("Optimization Completed!")
-
-        # =========================
-        # Results Summary
-        # =========================
         st.metric("Best Total Distance", f"{best_score:.4f}")
         st.metric("Vehicles Used", len(best_routes))
-        st.metric("Execution Time (s)", f"{exec_time:.2f}")
+        st.metric("Execution Time (seconds)", f"{exec_time:.2f}")
 
         # =========================
-        # Plot Routes
+        # ROUTE SUMMARY TABLE
+        # =========================
+        route_table = []
+        customer_table = []
+
+        for i, route in enumerate(best_routes, start=1):
+            load = sum(demands[n] for n in route)
+            dist = calculate_route_distance(route)
+
+            route_table.append({
+                "Vehicle": f"Vehicle {i}",
+                "Route": "Depot → " + " → ".join(map(str, route)) + " → Depot",
+                "Total Demand": load,
+                "Route Distance": round(dist, 4),
+                "Capacity Usage (%)": round((load / capacity) * 100, 2)
+            })
+
+            for n in route:
+                customer_table.append({
+                    "Customer ID": n,
+                    "Vehicle": f"Vehicle {i}",
+                    "Demand": demands[n]
+                })
+
+        route_df = pd.DataFrame(route_table)
+        customer_df = pd.DataFrame(customer_table)
+
+        st.subheader("📋 Vehicle Route Summary")
+        st.dataframe(route_df, use_container_width=True, hide_index=True)
+
+        st.subheader("👥 Customer Assignment Table")
+        st.dataframe(customer_df, use_container_width=True, hide_index=True)
+
+        # =========================
+        # DOWNLOAD BUTTONS
+        # =========================
+        st.download_button(
+            "⬇️ Download Route Summary (CSV)",
+            route_df.to_csv(index=False).encode("utf-8"),
+            "vrp_route_summary.csv",
+            "text/csv"
+        )
+
+        st.download_button(
+            "⬇️ Download Customer Assignment (CSV)",
+            customer_df.to_csv(index=False).encode("utf-8"),
+            "vrp_customer_assignment.csv",
+            "text/csv"
+        )
+
+        # =========================
+        # ROUTE VISUALIZATION
         # =========================
         st.subheader("📍 Best Route Visualization")
         fig, ax = plt.subplots(figsize=(8, 6))
 
-        ax.scatter(depot['x'], depot['y'], c='red', marker='s', s=150, label='Depot')
+        ax.scatter(depot['x'], depot['y'], c='red', s=150, marker='s', label='Depot')
         ax.scatter(customers['x'], customers['y'], c='blue', s=50, label='Customers')
 
         colors = plt.cm.tab10(np.linspace(0, 1, len(best_routes)))
+
         for i, route in enumerate(best_routes):
             coords = [(depot['x'], depot['y'])]
-            for node_id in route:
-                node = df[df['node_id'] == node_id].iloc[0]
+            for n in route:
+                node = df[df['node_id'] == n].iloc[0]
                 coords.append((node['x'], node['y']))
             coords.append((depot['x'], depot['y']))
 
@@ -180,13 +235,13 @@ if uploaded_file:
         st.pyplot(fig)
 
         # =========================
-        # Convergence Plot
+        # CONVERGENCE CURVE
         # =========================
         st.subheader("📉 Convergence Curve")
         fig2, ax2 = plt.subplots(figsize=(8, 4))
         ax2.plot(history)
         ax2.set_xlabel("Generation")
-        ax2.set_ylabel("Total Distance")
+        ax2.set_ylabel("Best Distance")
         ax2.grid(True)
         st.pyplot(fig2)
 
