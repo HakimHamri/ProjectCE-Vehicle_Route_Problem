@@ -172,42 +172,40 @@ if uploaded_file:
         st.metric("Execution Time (s)", f"{exec_time:.2f}")
 
         # =========================
-        # SMALL Route Visualization
+        # FORCE SMALL DISPLAY USING COLUMNS
         # =========================
-        st.subheader("📍 Best Route Visualization (Small)")
-        fig, ax = plt.subplots(figsize=(4.5, 4))
+        col_plot, col_space = st.columns([1, 4])
 
-        ax.scatter(depot['x'], depot['y'], marker='s', s=80, label="Depot")
-        ax.scatter(customers['x'], customers['y'], s=30, label="Customers")
+        with col_plot:
+            st.subheader("📍 Routes (Small)")
+            fig, ax = plt.subplots(figsize=(3, 3))
 
-        colors = plt.cm.tab10(np.linspace(0, 1, len(best_routes)))
+            ax.scatter(depot['x'], depot['y'], marker='s', s=60, label="Depot")
+            ax.scatter(customers['x'], customers['y'], s=25, label="Customers")
 
-        for i, route in enumerate(best_routes):
-            coords = [(depot['x'], depot['y'])]
-            for node_id in route:
-                node = df[df['node_id'] == node_id].iloc[0]
-                coords.append((node['x'], node['y']))
-            coords.append((depot['x'], depot['y']))
+            colors = plt.cm.tab10(np.linspace(0, 1, len(best_routes)))
 
-            xs, ys = zip(*coords)
-            ax.plot(xs, ys, color=colors[i], linewidth=1.5, label=f"V{i+1}")
+            for i, route in enumerate(best_routes):
+                coords = [(depot['x'], depot['y'])]
+                for node_id in route:
+                    node = df[df['node_id'] == node_id].iloc[0]
+                    coords.append((node['x'], node['y']))
+                coords.append((depot['x'], depot['y']))
 
-        ax.legend(fontsize=7)
-        ax.tick_params(labelsize=8)
-        ax.grid(True)
-        st.pyplot(fig, use_container_width=True)
+                xs, ys = zip(*coords)
+                ax.plot(xs, ys, linewidth=1.2, color=colors[i], label=f"V{i+1}")
 
-        # =========================
-        # SMALL Convergence Plot
-        # =========================
-        st.subheader("📉 Convergence Curve (Small)")
-        fig2, ax2 = plt.subplots(figsize=(4.5, 2.5))
-        ax2.plot(history, linewidth=1.5)
-        ax2.set_xlabel("Generation", fontsize=8)
-        ax2.set_ylabel("Distance", fontsize=8)
-        ax2.tick_params(labelsize=8)
-        ax2.grid(True)
-        st.pyplot(fig2, use_container_width=True)
+            ax.legend(fontsize=6)
+            ax.tick_params(labelsize=7)
+            ax.grid(True)
+            st.pyplot(fig)
+
+            st.subheader("📉 Convergence (Small)")
+            fig2, ax2 = plt.subplots(figsize=(3, 2))
+            ax2.plot(history, linewidth=1.2)
+            ax2.tick_params(labelsize=7)
+            ax2.grid(True)
+            st.pyplot(fig2)
 
 else:
     st.info("👆 Please upload a VRP CSV dataset to start.")
