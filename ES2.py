@@ -175,7 +175,7 @@ if uploaded_file:
         # Route Visualization
         # =========================
         st.subheader("📍 Best Route Visualization")
-        fig, ax = plt.subplots(figsize=(8, 6))
+        fig, ax = plt.subplots(figsize=(6, 5))
 
         ax.scatter(depot['x'], depot['y'], marker='s', s=150, label="Depot")
         ax.scatter(customers['x'], customers['y'], s=50, label="Customers")
@@ -200,7 +200,7 @@ if uploaded_file:
         # Convergence Plot
         # =========================
         st.subheader("📉 Convergence Curve")
-        fig2, ax2 = plt.subplots(figsize=(8, 4))
+        fig2, ax2 = plt.subplots(figsize=(6, 3.5))
         ax2.plot(history)
         ax2.set_xlabel("Generation")
         ax2.set_ylabel("Total Distance")
