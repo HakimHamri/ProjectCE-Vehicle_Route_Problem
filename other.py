@@ -136,7 +136,7 @@ if uploaded_file:
     # =========================
     st.sidebar.header("⚙️ Parameters")
     mu = st.sidebar.slider("μ Population", 10, 50, 20)
-    lambda_ = st.sidebar.slider("λ Offspring", 50, 500 200)
+    lambda_ = st.sidebar.slider("λ Offspring", 50, 500, 200)
     generations = st.sidebar.slider("Generations", 100, 1000, 200)
 
     # =========================
