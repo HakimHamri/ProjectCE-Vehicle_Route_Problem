@@ -177,7 +177,7 @@ if uploaded_file:
         col_plot, col_space = st.columns([1, 4])
 
         with col_plot:
-            st.subheader("📍 Routes (Small)")
+            st.subheader("📍 Routes ")
             fig, ax = plt.subplots(figsize=(3, 3))
 
             ax.scatter(depot['x'], depot['y'], marker='s', s=60, label="Depot")
@@ -200,7 +200,7 @@ if uploaded_file:
             ax.grid(True)
             st.pyplot(fig)
 
-            st.subheader("📉 Convergence (Small)")
+            st.subheader("📉 Convergence ")
             fig2, ax2 = plt.subplots(figsize=(3, 2))
             ax2.plot(history, linewidth=1.2)
             ax2.tick_params(labelsize=7)
