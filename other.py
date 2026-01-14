@@ -1,163 +1,249 @@
 import streamlit as st
+import numpy as np
 import pandas as pd
-import csv
-import random
-import io
+import time
+import matplotlib.pyplot as plt
 
-# ============================== CSV READER ==============================
-def read_csv_to_dict(file):
-    program_ratings = {}
-    if file is None:
-        return program_ratings
-    file.seek(0)
-    reader = csv.reader(io.StringIO(file.read().decode('utf-8')))
-    header = next(reader)
-    for row in reader:
-        program = row[0]
-        ratings = [float(x) for x in row[1:]]
-        program_ratings[program] = ratings
-    return program_ratings
+# =========================
+# Streamlit Page Config
+# =========================
+st.set_page_config(page_title="VRP Evolution Strategy", layout="wide")
 
+st.title("🚚 Vehicle Routing Problem (VRP)")
+st.subheader("Evolution Strategy with Local Search (Best Performance)")
 
-# ========================== GENETIC ALGORITHM ==========================
-def fitness_function(schedule, ratings):
-    total_rating = 0
-    for time_slot, program in enumerate(schedule):
-        total_rating += ratings[program][time_slot % len(ratings[program])]
-    return total_rating
-
-
-def initialize_pop(programs, time_slots):
-    if not programs:
-        return [[]]
-    all_schedules = []
-    for i in range(len(programs)):
-        for schedule in initialize_pop(programs[:i] + programs[i + 1:], time_slots):
-            all_schedules.append([programs[i]] + schedule)
-    return all_schedules
-
-
-def finding_best_schedule(all_schedules, ratings):
-    best_schedule = []
-    max_ratings = 0
-    for schedule in all_schedules:
-        total_ratings = fitness_function(schedule, ratings)
-        if total_ratings > max_ratings:
-            max_ratings = total_ratings
-            best_schedule = schedule
-    return best_schedule
-
-
-def crossover(schedule1, schedule2):
-    crossover_point = random.randint(1, len(schedule1) - 2)
-    child1 = schedule1[:crossover_point] + schedule2[crossover_point:]
-    child2 = schedule2[:crossover_point] + schedule1[crossover_point:]
-    return child1, child2
-
-
-def mutate(schedule, all_programs):
-    mutation_point = random.randint(0, len(schedule) - 1)
-    schedule[mutation_point] = random.choice(all_programs)
-    return schedule
-
-
-def genetic_algorithm(
-    initial_schedule, ratings, all_programs, generations, population_size, crossover_rate, mutation_rate, elitism_size
-):
-    population = [initial_schedule]
-    for _ in range(population_size - 1):
-        random_schedule = initial_schedule.copy()
-        random.shuffle(random_schedule)
-        population.append(random_schedule)
-
-    for generation in range(generations):
-        new_population = []
-        population.sort(key=lambda s: fitness_function(s, ratings), reverse=True)
-        new_population.extend(population[:elitism_size])
-
-        while len(new_population) < population_size:
-            parent1, parent2 = random.choices(population, k=2)
-            if random.random() < crossover_rate:
-                child1, child2 = crossover(parent1, parent2)
-            else:
-                child1, child2 = parent1.copy(), parent2.copy()
-            if random.random() < mutation_rate:
-                child1 = mutate(child1, all_programs)
-            if random.random() < mutation_rate:
-                child2 = mutate(child2, all_programs)
-            new_population.extend([child1, child2])
-
-        population = new_population
-
-    return max(population, key=lambda s: fitness_function(s, ratings))
-
-
-# ============================ STREAMLIT INTERFACE ============================
-st.title("📺 TV Program Scheduling using Genetic Algorithm")
-
-uploaded_file = st.file_uploader("Upload CSV File with Program Ratings", type=["csv"])
+# =========================
+# Upload Dataset
+# =========================
+uploaded_file = st.file_uploader("Upload VRP CSV Dataset", type=["csv"])
 
 if uploaded_file:
-    ratings = read_csv_to_dict(uploaded_file)
-    all_programs = list(ratings.keys())
-    all_time_slots = list(range(6, 24))
+    df = pd.read_csv(uploaded_file)
 
-    st.success("✅ CSV successfully loaded!")
+    depot = df[df['node_type'] == 'depot'].iloc[0]
+    customers = df[df['node_type'] == 'customer'].copy()
+    capacity = df['vehicle_capacity'].iloc[0]
 
-    GEN = 100
-    POP = 50
-    EL_S = 2
+    nodes = df[['x', 'y']].values
+    dist_matrix = np.sqrt(
+        np.sum((nodes[:, np.newaxis, :] - nodes[np.newaxis, :, :]) ** 2, axis=2)
+    )
 
-    # Sliders for three trials
-    st.header("⚙️ Genetic Algorithm Parameters (Three Trials)")
-    trials = []
-    for i in range(1, 4):
-        st.subheader(f"Trial {i}")
-        co_r = st.slider(f"Crossover Rate (Trial {i})", 0.0, 0.95, 0.8, 0.01, key=f"co_{i}")
-        mut_r = st.slider(f"Mutation Rate (Trial {i})", 0.01, 0.05, 0.02, 0.01, key=f"mut_{i}")
-        trials.append((co_r, mut_r))
+    demands = df.set_index('node_id')['demand'].to_dict()
 
-    if st.button("Run Genetic Algorithm"):
-        # Initialize population
-        all_possible_schedules = initialize_pop(all_programs, all_time_slots)
-        initial_best_schedule = finding_best_schedule(all_possible_schedules, ratings)
+    # =========================
+    # FUNCTIONS
+    # =========================
+    def calculate_route_distance(route):
+        if not route:
+            return 0
+        d = dist_matrix[0, route[0]]
+        for i in range(len(route) - 1):
+            d += dist_matrix[route[i], route[i + 1]]
+        d += dist_matrix[route[-1], 0]
+        return d
 
-        st.header("🧠 Experiment Results")
-        for i, (co_r, mut_r) in enumerate(trials, start=1):
-            with st.expander(f"Trial {i} Results"):
-                best_schedule = genetic_algorithm(
-                    initial_best_schedule,
-                    ratings,
-                    all_programs,
-                    GEN,
-                    POP,
-                    co_r,
-                    mut_r,
-                    EL_S,
-                )
+    def decode_and_eval(permutation):
+        routes = []
+        current_route = []
+        current_load = 0
+        total_dist = 0
 
-                # === FIX: Ensure table lengths match ===
-                time_slots_formatted = [f"{t:02d}:00" for t in all_time_slots]
-                programs_for_slots = best_schedule
+        for node_id in permutation:
+            if current_load + demands[node_id] <= capacity:
+                current_route.append(node_id)
+                current_load += demands[node_id]
+            else:
+                total_dist += calculate_route_distance(current_route)
+                routes.append(current_route)
+                current_route = [node_id]
+                current_load = demands[node_id]
 
-                if len(programs_for_slots) < len(time_slots_formatted):
-                    programs_for_slots += [
-                        random.choice(all_programs)
-                        for _ in range(len(time_slots_formatted) - len(programs_for_slots))
-                    ]
-                elif len(programs_for_slots) > len(time_slots_formatted):
-                    programs_for_slots = programs_for_slots[: len(time_slots_formatted)]
+        if current_route:
+            total_dist += calculate_route_distance(current_route)
+            routes.append(current_route)
 
-                schedule_data = {
-                    "Time Slot": time_slots_formatted,
-                    "Program": programs_for_slots,
-                }
+        return total_dist, routes
 
-                df_schedule = pd.DataFrame(schedule_data)
+    def two_opt_permutation(perm):
+        best = list(perm)
+        best_dist, _ = decode_and_eval(best)
 
-                st.markdown(f"**Parameters Used:**  CO_R = {co_r}, MUT_R = {mut_r}")
-                st.table(df_schedule)
-                st.markdown(f"**Total Ratings:** {fitness_function(best_schedule, ratings)}")
+        improved = True
+        while improved:
+            improved = False
+            for i in range(len(best) - 1):
+                for j in range(i + 1, len(best)):
+                    new = best[:i] + best[i:j+1][::-1] + best[j+1:]
+                    new_dist, _ = decode_and_eval(new)
+                    if new_dist < best_dist:
+                        best_dist = new_dist
+                        best = new
+                        improved = True
+        return best
+
+    def best_performance_es(mu, lambda_, generations):
+        cust_ids = customers['node_id'].tolist()
+        pop = [np.random.permutation(cust_ids).tolist() for _ in range(mu)]
+        pop_scores = [decode_and_eval(p)[0] for p in pop]
+
+        history = []
+
+        for gen in range(generations):
+            offspring = []
+
+            for _ in range(lambda_):
+                parent = pop[np.random.randint(mu)]
+                child = list(parent)
+
+                r = np.random.rand()
+                if r < 0.4:
+                    i, j = np.random.choice(len(child), 2, replace=False)
+                    child[i], child[j] = child[j], child[i]
+                elif r < 0.8:
+                    a, b = sorted(np.random.choice(len(child), 2, replace=False))
+                    child[a:b] = child[a:b][::-1]
+                else:
+                    a, b = sorted(np.random.choice(len(child), 2, replace=False))
+                    segment = child[a:b]
+                    del child[a:b]
+                    pos = np.random.randint(0, len(child) + 1)
+                    for s in reversed(segment):
+                        child.insert(pos, s)
+
+                offspring.append(child)
+
+            offspring_scores = [decode_and_eval(p)[0] for p in offspring]
+
+            combined = pop + offspring
+            combined_scores = pop_scores + offspring_scores
+
+            idx = np.argsort(combined_scores)[:mu]
+            pop = [combined[i] for i in idx]
+            pop_scores = [combined_scores[i] for i in idx]
+
+            if gen % 100 == 0:
+                pop[0] = two_opt_permutation(pop[0])
+                pop_scores[0], _ = decode_and_eval(pop[0])
+
+            history.append(pop_scores[0])
+
+        best_score, best_routes = decode_and_eval(pop[0])
+        return best_score, best_routes, history
+
+    # =========================
+    # SIDEBAR PARAMETERS
+    # =========================
+    st.sidebar.header("⚙️ Parameters")
+    mu = st.sidebar.slider("μ Population", 10, 50, 20)
+    lambda_ = st.sidebar.slider("λ Offspring", 50, 200, 100)
+    generations = st.sidebar.slider("Generations", 100, 2000, 1000)
+
+    # =========================
+    # RUN BUTTON
+    # =========================
+    if st.button("🚀 Run Evolution Strategy"):
+        with st.spinner("Optimizing routes..."):
+            start = time.time()
+            best_score, best_routes, history = best_performance_es(
+                mu, lambda_, generations
+            )
+            exec_time = time.time() - start
+
+        # =========================
+        # METRICS
+        # =========================
+        st.success("Optimization Completed!")
+        st.metric("Best Total Distance", f"{best_score:.4f}")
+        st.metric("Vehicles Used", len(best_routes))
+        st.metric("Execution Time (seconds)", f"{exec_time:.2f}")
+
+        # =========================
+        # ROUTE SUMMARY TABLE
+        # =========================
+        route_table = []
+        customer_table = []
+
+        for i, route in enumerate(best_routes, start=1):
+            load = sum(demands[n] for n in route)
+            dist = calculate_route_distance(route)
+
+            route_table.append({
+                "Vehicle": f"Vehicle {i}",
+                "Route": "Depot → " + " → ".join(map(str, route)) + " → Depot",
+                "Total Demand": load,
+                "Route Distance": round(dist, 4),
+                "Capacity Usage (%)": round((load / capacity) * 100, 2)
+            })
+
+            for n in route:
+                customer_table.append({
+                    "Customer ID": n,
+                    "Vehicle": f"Vehicle {i}",
+                    "Demand": demands[n]
+                })
+
+        route_df = pd.DataFrame(route_table)
+        customer_df = pd.DataFrame(customer_table)
+
+        st.subheader("📋 Vehicle Route Summary")
+        st.dataframe(route_df, use_container_width=True, hide_index=True)
+
+        st.subheader("👥 Customer Assignment Table")
+        st.dataframe(customer_df, use_container_width=True, hide_index=True)
+
+        # =========================
+        # DOWNLOAD BUTTONS
+        # =========================
+        st.download_button(
+            "⬇️ Download Route Summary (CSV)",
+            route_df.to_csv(index=False).encode("utf-8"),
+            "vrp_route_summary.csv",
+            "text/csv"
+        )
+
+        st.download_button(
+            "⬇️ Download Customer Assignment (CSV)",
+            customer_df.to_csv(index=False).encode("utf-8"),
+            "vrp_customer_assignment.csv",
+            "text/csv"
+        )
+
+        # =========================
+        # ROUTE VISUALIZATION
+        # =========================
+        st.subheader("📍 Best Route Visualization")
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        ax.scatter(depot['x'], depot['y'], c='red', s=150, marker='s', label='Depot')
+        ax.scatter(customers['x'], customers['y'], c='blue', s=50, label='Customers')
+
+        colors = plt.cm.tab10(np.linspace(0, 1, len(best_routes)))
+
+        for i, route in enumerate(best_routes):
+            coords = [(depot['x'], depot['y'])]
+            for n in route:
+                node = df[df['node_id'] == n].iloc[0]
+                coords.append((node['x'], node['y']))
+            coords.append((depot['x'], depot['y']))
+
+            xs, ys = zip(*coords)
+            ax.plot(xs, ys, color=colors[i], linewidth=2, label=f'Vehicle {i+1}')
+
+        ax.legend()
+        ax.grid(True)
+        st.pyplot(fig)
+
+        # =========================
+        # CONVERGENCE CURVE
+        # =========================
+        st.subheader("📉 Convergence Curve")
+        fig2, ax2 = plt.subplots(figsize=(8, 4))
+        ax2.plot(history)
+        ax2.set_xlabel("Generation")
+        ax2.set_ylabel("Best Distance")
+        ax2.grid(True)
+        st.pyplot(fig2)
 
 else:
-    st.info("Please upload a CSV file to begin.")
+    st.info("👆 Please upload a VRP CSV dataset to start.")
